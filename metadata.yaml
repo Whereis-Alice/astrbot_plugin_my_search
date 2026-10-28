@@ -1,0 +1,12 @@
+name: astrbot_plugin_my_search
+display_name: 我的搜索
+desc: 用“搜一搜”查找网页资料，支持可配置的合并转发、批量搜索、网页正文提取和 AI 联网工具。
+version: v1.0.0
+author: Whereis-Alice
+repo: https://github.com/Whereis-Alice/astrbot_plugin_my_search
+astrbot_version: ">=4.16,<5"
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - telegram
+  - lark

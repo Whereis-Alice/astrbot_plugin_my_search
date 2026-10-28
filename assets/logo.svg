@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="我的搜索：放大镜、资料卡片和闪光">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123C52"/>
+      <stop offset="1" stop-color="#0B6968"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FCF1D5"/>
+      <stop offset="1" stop-color="#E6C581"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="116" fill="url(#bg)"/>
+  <rect x="26" y="26" width="460" height="460" rx="104" fill="none" stroke="#C0F1DB" stroke-opacity=".17" stroke-width="2"/>
+  <circle cx="241" cy="249" r="166" fill="#B5E3CF" fill-opacity=".045"/>
+  <g transform="rotate(-9 225 228)">
+    <rect x="165" y="149" width="141" height="140" rx="22" fill="#5CC2B2" fill-opacity=".35"/>
+    <rect x="143" y="170" width="141" height="140" rx="22" fill="#A7DFCD"/>
+    <path d="M170 203h80M170 226h58M170 249h72" fill="none" stroke="#1C686D" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <path d="M301 300l75 75" fill="none" stroke="#073B45" stroke-opacity=".45" stroke-width="48" stroke-linecap="round"/>
+  <path d="M307 307l75 75" fill="none" stroke="url(#handle)" stroke-width="36" stroke-linecap="round"/>
+  <circle cx="222" cy="222" r="116" fill="none" stroke="#FFF2D5" stroke-width="27"/>
+  <path d="M148 188a82 82 0 0 1 40-39" fill="none" stroke="#FFFFFF" stroke-opacity=".65" stroke-width="9" stroke-linecap="round"/>
+  <path d="M372 100c5 32 14 41 46 46-32 5-41 14-46 46-5-32-14-41-46-46 32-5 41-14 46-46Z" fill="#F6C665"/>
+  <circle cx="103" cy="365" r="9" fill="#9ED9C7"/>
+  <circle cx="126" cy="389" r="4" fill="#9ED9C7" fill-opacity=".6"/>
+</svg>

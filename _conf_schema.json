@@ -1,0 +1,81 @@
+{
+  "api_key": {
+    "type": "string",
+    "description": "Anysearch API Key（可选）",
+    "hint": "可先留空尝试匿名访问；匿名额度、可用性和计费规则由 Anysearch 决定。额度不足时可在 https://anysearch.com/console/api-keys 获取 Key。",
+    "default": ""
+  },
+  "result_mode": {
+    "type": "string",
+    "description": "指令结果发送方式",
+    "hint": "合并转发：每次使用转发；长结果转发：达到长度阈值才转发；分段文本：始终发文本。合并转发仅支持 OneBot v11；其他平台自动发送文本。发送失败也会自动改用文本。仅控制本插件的搜索指令，不控制 AI 的最终回复。",
+    "options": ["合并转发", "长结果转发", "分段文本"],
+    "default": "合并转发"
+  },
+  "forward_private": {
+    "type": "bool",
+    "description": "私聊也使用合并转发",
+    "hint": "默认关闭，私聊使用分段文本。开启后，OneBot v11 私聊按上方发送方式处理；部分协议端不支持私聊转发，失败时仍会改用文本。",
+    "default": false
+  },
+  "forward_threshold": {
+    "type": "int",
+    "description": "长结果转发阈值（字符）",
+    "hint": "仅在发送方式为“长结果转发”时生效：达到此长度才转发。默认 1000；有效范围 100–10000。与 AstrBot 全局长消息阈值无关。",
+    "default": 1000
+  },
+  "max_results": {
+    "type": "int",
+    "description": "每次搜索的结果数量",
+    "hint": "默认 5，有效范围 1–10。批量搜索时每个关键词使用此数量。AI 工具可以在 1–10 范围内单独指定数量。服务可能返回少于指定数量的结果。",
+    "default": 5
+  },
+  "command_output_limit": {
+    "type": "int",
+    "description": "指令结果输出上限（字符）",
+    "hint": "默认 6000，有效范围 500–60000。普通搜索、批量搜索和网页正文均适用；超过上限会截断并提示，防止刷屏。",
+    "default": 6000
+  },
+  "chunk_size": {
+    "type": "int",
+    "description": "每条文本或转发节点的长度上限",
+    "hint": "默认 1000，有效范围 300–3000。优先按段落、换行切分；文本分段会标注顺序。平台拒绝较长文本时可适当调小。",
+    "default": 1000
+  },
+  "forward_name": {
+    "type": "string",
+    "description": "合并转发节点的显示名称",
+    "hint": "默认“我的搜索”，最长 32 字符；节点使用机器人的账号发送。",
+    "default": "我的搜索"
+  },
+  "enable_ai_tools": {
+    "type": "bool",
+    "description": "注册 AI 联网工具",
+    "hint": "默认开启，向 AstrBot 注册搜索、提取和批量搜索工具。还需在 AstrBot 中为当前会话启用相关工具，并使用支持工具调用的模型。关闭后仍能使用搜索指令。修改后重载插件。",
+    "default": true
+  },
+  "tool_output_limit": {
+    "type": "int",
+    "description": "AI 工具返回内容上限（字符）",
+    "hint": "默认 12000，有效范围 500–60000；减少过长网页占用模型上下文。与指令结果发送方式、指令输出上限独立。",
+    "default": 12000
+  },
+  "request_timeout": {
+    "type": "int",
+    "description": "单次网络请求超时（秒）",
+    "hint": "默认 30，有效范围 5–120。临时 HTTP 502/503/504 错误会重试一次，因此总耗时可能更长。额度不足、鉴权失败和网络超时不自动重试。",
+    "default": 30
+  },
+  "cache_ttl": {
+    "type": "int",
+    "description": "相同请求的缓存时间（秒）",
+    "hint": "默认 60，有效范围 0–3600；0 关闭结果缓存。仅缓存成功结果，最多 64 项，过大的内容不缓存；保存在内存，重载后清空。追求即时更新可设为 0。",
+    "default": 60
+  },
+  "max_concurrency": {
+    "type": "int",
+    "description": "最大并发网络请求数",
+    "hint": "默认 3，有效范围 1–10。相同的进行中请求会合并，减少重复调用；不同请求最多排队 32 项，超过时提示稍后再试。",
+    "default": 3
+  }
+}
