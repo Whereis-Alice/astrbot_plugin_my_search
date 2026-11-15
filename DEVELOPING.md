@@ -15,6 +15,8 @@ python -m unittest discover -s tests -v
 
 错误回归包含真实 `extract_failed` 响应格式、错误码与请求编号保留、API Key/鉴权信息/请求参数脱敏、合并请求只记录一次失败、失败不缓存、显式搜索 URL 不走提取，以及提取服务 JSON 正文转为可读文本。
 
+发送日志回归覆盖转发成功后才记录成功、转发失败后的文本回退、文本部分发送失败不记作全部成功，以及成功日志不包含网页正文和 URL。
+
 `main.py` 负责插件配置、指令和发消息；`search_service.py` 统一参数校验与输出整理；`client.py` 管理 HTTP、缓存和资源释放；`tools.py` 定义独立命名的 AI 工具。
 
 Logo 的 SVG 源文件位于 `assets/logo.svg`。若安装 Pillow，可运行 `python scripts/build_logo.py` 重新生成插件根目录的 `logo.png`；Pillow 不是插件运行时依赖。

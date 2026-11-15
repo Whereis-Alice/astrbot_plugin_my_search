@@ -132,7 +132,17 @@ class MySearchPlugin(Star):
             hint = "\n若只想搜索相关资料，可用 /搜一搜 搜索 URL。" if operation == "extract" else ""
             yield event.plain_result(f"我的搜索：{exc}{hint}").use_t2i(False)
             return
-        await self._send_result(event, result)
+        operation_name = {"extract": "网页提取", "batch": "批量搜索", "search": "搜索"}[operation]
+        logger.info(
+            "我的搜索：%s完成，平台=%s，结果长度=%d字符。",
+            operation_name,
+            event.get_platform_name(),
+            len(result),
+        )
+        try:
+            await self._send_result(event, result)
+        except SearchError as exc:
+            yield event.plain_result(f"我的搜索：{exc}").use_t2i(False)
 
     def _use_forward(self, event: AstrMessageEvent, text: str) -> bool:
         if event.get_platform_name() != "aiocqhttp" or self.result_mode == "text":
@@ -142,7 +152,11 @@ class MySearchPlugin(Star):
         return self.result_mode == "forward" or len(text) >= self.forward_threshold
 
     async def _send_result(self, event: AstrMessageEvent, text: str) -> None:
+        truncated = len(text) > self.command_limit
         text = limit_text(text, self.command_limit)
+        output_size = len(text)
+        platform = event.get_platform_name()
+        fallback = False
         chunks = split_text(text, self.chunk_size - 20) or [
             "未找到可读结果，请换个关键词或网页地址。"
         ]
@@ -156,12 +170,20 @@ class MySearchPlugin(Star):
                     for chunk in chunks
                 ]
                 await event.send(MessageChain([Nodes(nodes)]))
+                logger.info(
+                    "我的搜索：合并转发发送成功，平台=%s，节点=%d，正文=%d字符，已截断=%s。",
+                    platform,
+                    len(nodes),
+                    output_size,
+                    "是" if truncated else "否",
+                )
                 return
             except Exception as exc:  # noqa: BLE001 - exception types vary by protocol implementation.
                 # Protocol exceptions may contain user content; only log their type.
                 logger.warning(
                     "我的搜索：合并转发发送失败（%s），改用分段文本。", type(exc).__name__
                 )
+                fallback = True
                 chunks = split_text(
                     "合并转发未成功，以下改用分段文本。\n\n" + "".join(chunks), self.chunk_size - 20
                 )
@@ -170,7 +192,28 @@ class MySearchPlugin(Star):
         total = len(chunks)
         for index, chunk in enumerate(chunks, 1):
             label = f"[{index}/{total}]\n" if total > 1 else ""
-            await event.send(MessageChain([Plain(label + chunk)]))
+            try:
+                await event.send(MessageChain([Plain(label + chunk)]))
+            except Exception as exc:  # noqa: BLE001 - adapters raise different protocol exceptions.
+                logger.error(
+                    "我的搜索：文本发送失败，平台=%s，已发送=%d/%d条，异常类型=%s。",
+                    platform,
+                    index - 1,
+                    total,
+                    type(exc).__name__,
+                )
+                raise SearchError(
+                    f"结果已获取，但消息发送失败（已发送 {index - 1}/{total} 条）。请检查平台权限和协议端日志。",
+                    code="message_send_failed",
+                ) from None
+        logger.info(
+            "我的搜索：%s发送成功，平台=%s，消息=%d条，正文=%d字符，已截断=%s。",
+            "转发回退文本" if fallback else "文本",
+            platform,
+            total,
+            output_size,
+            "是" if truncated else "否",
+        )
 
     async def terminate(self) -> None:
         try:

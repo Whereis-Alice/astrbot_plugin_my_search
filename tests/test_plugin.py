@@ -8,7 +8,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from aiohttp import web
 from astrbot.api.event import AstrMessageEvent
@@ -280,6 +280,76 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(payload["messages"][0]["data"]["user_id"], "456")
         self.assertEqual(payload["messages"][0]["data"]["nickname"], "我的搜索")
+
+    async def test_forward_success_is_logged_after_send_without_page_content(self):
+        event = LocalEvent()
+        original_send = event.send
+        with patch.object(plugin_module.logger, "info") as info:
+
+            async def checked_send(chain):
+                info.assert_not_called()
+                await original_send(chain)
+                info.assert_not_called()
+
+            event.send = checked_send
+            await self.plugin._send_result(event, "private-page-body" * 200)
+        self.assertEqual(info.call_count, 1)
+        args = info.call_args.args
+        self.assertIn("合并转发发送成功", args[0])
+        self.assertEqual(args[1], "aiocqhttp")
+        self.assertEqual(args[2], len(event.sent[0].chain[0].nodes))
+        self.assertNotIn("private-page-body", str(info.call_args))
+
+    async def test_fallback_and_partial_text_failure_have_accurate_logs(self):
+        event = LocalEvent(fail_forward=True)
+        with patch.object(plugin_module.logger, "info") as info:
+            await self.plugin._send_result(event, "x" * 1900)
+        self.assertEqual(info.call_count, 1)
+        self.assertEqual(info.call_args.args[1], "转发回退文本")
+        self.assertEqual(info.call_args.args[3], len(event.sent) - 1)
+        self.plugin.result_mode = "text"
+        event = LocalEvent()
+        event.send = AsyncMock(side_effect=[None, RuntimeError("private-protocol-payload")])
+        with (
+            patch.object(plugin_module.logger, "info") as info,
+            patch.object(plugin_module.logger, "error") as error,
+            self.assertRaises(SearchError) as caught,
+        ):
+            await self.plugin._send_result(event, "x" * 1900)
+        info.assert_not_called()
+        self.assertEqual(error.call_args.args[2], 1)
+        self.assertIn("已发送 1/2", str(caught.exception))
+        self.assertNotIn("private-protocol-payload", str(error.call_args))
+        self.assertNotIn("private-protocol-payload", str(caught.exception))
+
+    async def test_command_completion_and_send_error_are_separate(self):
+        event = LocalEvent()
+        with patch.object(plugin_module.logger, "info") as info:
+            [
+                r
+                async for r in self.plugin.my_extract_command(
+                    event, "https://bgm.tv/subject/657656"
+                )
+            ]
+        self.assertEqual(info.call_count, 2)
+        self.assertEqual(info.call_args_list[0].args[1], "网页提取")
+        self.assertIn("合并转发发送成功", info.call_args_list[1].args[0])
+        self.assertNotIn("https://bgm.tv/subject/657656", str(info.call_args_list))
+        self.plugin.result_mode = "text"
+        event.send = AsyncMock(side_effect=RuntimeError("private-protocol-payload"))
+        with (
+            patch.object(plugin_module.logger, "info") as info,
+            patch.object(plugin_module.logger, "error"),
+        ):
+            result = [
+                r
+                async for r in self.plugin.my_extract_command(
+                    event, "https://bgm.tv/subject/657656"
+                )
+            ]
+        self.assertEqual(info.call_count, 1)
+        self.assertIn("message_send_failed", result[0].chain[0].text)
+        self.assertNotIn("/搜一搜 搜索 URL", result[0].chain[0].text)
 
     async def test_forward_failure_falls_back_without_repeat(self):
         event = LocalEvent(fail_forward=True)
