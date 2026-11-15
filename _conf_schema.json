@@ -7,16 +7,34 @@
   },
   "result_mode": {
     "type": "string",
-    "description": "指令结果发送方式",
-    "hint": "合并转发：每次使用转发；长结果转发：达到长度阈值才转发；分段文本：始终发文本。合并转发仅支持 OneBot v11；其他平台自动发送文本。发送失败也会自动改用文本。仅控制本插件的搜索指令，不控制 AI 的最终回复。",
+    "description": "OneBot 指令结果发送方式",
+    "hint": "合并转发仅支持 OneBot v11：每次转发，或仅转发达到阈值的长结果；分段文本始终发文本。QQ 官 bot 使用下方独立的 Markdown 设置，其他平台发文本。转发失败会改用文本。仅控制本插件的指令，不控制 AI 最终回复。",
     "options": ["合并转发", "长结果转发", "分段文本"],
     "default": "合并转发"
   },
   "forward_private": {
     "type": "bool",
     "description": "私聊也使用合并转发",
-    "hint": "默认关闭，私聊使用分段文本。开启后，OneBot v11 私聊按上方发送方式处理；部分协议端不支持私聊转发，失败时仍会改用文本。",
+    "hint": "仅对 OneBot v11 生效。默认关闭，OneBot 私聊使用分段文本。开启后按上方发送方式处理；部分协议端不支持私聊转发，失败时仍会改用文本。",
     "default": false
+  },
+  "qq_official_markdown": {
+    "type": "bool",
+    "description": "QQ 官 bot 使用 Markdown 排版",
+    "hint": "默认开启，仅作用于 qq_official / qq_official_webhook 的指令结果。QQ 群聊、单聊可直接发送自定义 Markdown，无需模板；频道需要平台权限。明确被拒绝时改用文本，不影响 OneBot 合并转发。",
+    "default": true
+  },
+  "qq_official_show_links": {
+    "type": "bool",
+    "description": "QQ 官 bot 显示来源链接",
+    "hint": "默认开启，Markdown 中显示可点击的来源链接；文本中显示 URL。链接仍受 QQ 平台审核、跳转和机器人权限限制。关闭后用提示替代 http(s) 链接；平台明确返回“不允许发送 URL”时也会自动隐藏链接。",
+    "default": true
+  },
+  "qq_official_max_messages": {
+    "type": "int",
+    "description": "QQ 官 bot 每次结果最多回复几条",
+    "hint": "默认 3，范围 1–5；单聊实际最多 4 条，群聊最多 5 条。超出时截断并提示，避免超过被动回复额度。每条沿用下方长度设置，QQ 官 bot 最多按 2000 字符处理。其他插件的回复也可能占用平台额度。",
+    "default": 3
   },
   "forward_threshold": {
     "type": "int",
@@ -38,8 +56,8 @@
   },
   "chunk_size": {
     "type": "int",
-    "description": "每条文本或转发节点的长度上限",
-    "hint": "默认 1000，有效范围 300–3000。优先按段落、换行切分；文本分段会标注顺序。平台拒绝较长文本时可适当调小。",
+    "description": "每条文本、Markdown 或转发节点的长度上限",
+    "hint": "默认 1000，有效范围 300–3000。OneBot 文本优先按段落或换行切分；QQ 官 bot 单条最多按 2000 字符处理并保留完整链接。长结果分段会标注顺序。平台拒绝较长消息时可适当调小。",
     "default": 1000
   },
   "forward_name": {

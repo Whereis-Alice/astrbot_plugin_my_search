@@ -17,6 +17,12 @@ python -m unittest discover -s tests -v
 
 发送日志回归覆盖转发成功后才记录成功、转发失败后的文本回退、文本部分发送失败不记作全部成功，以及成功日志不包含网页正文和 URL。
 
+QQ 官 bot 回归使用真正的 `QQOfficialMessageEvent`、botpy 的 `GroupMessage` / `C2CMessage` / `Message` / `DirectMessage` 和 `BotAPI`，在 HTTP 层模拟响应。覆盖群聊、单聊、频道及频道私信路由，原消息 ID、递增 `msg_seq`、单聊 4 次/群聊 5 次的回复上限、Markdown 和 URL 拒绝后的降级、失败不重复发送、返回空消息 ID 不记成功，以及 URL 编码与分页时不截断链接。
+
+`qq_official.py` 通过原消息的公开 `reply()` 接口复用 AstrBot 的 botpy 客户端。这样在 AstrBot 4.16 等尚未支持 `MessageChain.use_markdown()` 的版本上，也能传入官方 Markdown 字段。接口返回消息 ID 后只调用 `AstrMessageEvent.send()` 基类记录发送状态，不再调用适配器发送；不使用主动消息兜底。`qq_formatting.py` 只处理排版和输出限制。
+
+官方参考（2026-11-15 核对）：[Markdown](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/markdown.html)、[消息收发规则](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)、[群聊发送](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html)、[单聊发送](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html)。群聊和单聊原生 Markdown 已开放；频道仍需开通权限。插件只对明确的 Markdown/URL 拒绝降级重试，不把内容审核错误或超时当作格式错误处理。
+
 `main.py` 负责插件配置、指令和发消息；`search_service.py` 统一参数校验与输出整理；`client.py` 管理 HTTP、缓存和资源释放；`tools.py` 定义独立命名的 AI 工具。
 
 Logo 的 SVG 源文件位于 `assets/logo.svg`。若安装 Pillow，可运行 `python scripts/build_logo.py` 重新生成插件根目录的 `logo.png`；Pillow 不是插件运行时依赖。

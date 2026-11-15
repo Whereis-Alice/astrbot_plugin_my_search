@@ -9,6 +9,7 @@ from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.command import GreedyStr
 
 from .client import SearchClient, SearchError
+from .qq_official import QQ_OFFICIAL_PLATFORMS, send_qq_result
 from .search_service import SearchService, bounded_int, is_public_http_url, limit_text, split_text
 from .tools import MyBatchSearchTool, MyExtractTool, MySearchTool
 
@@ -25,6 +26,9 @@ class MySearchPlugin(Star):
         self.chunk_size = self._int("chunk_size", 1000, 300, 3000)
         self.command_limit = self._int("command_output_limit", 6000, 500, 60000)
         self.forward_name = str(config.get("forward_name", "我的搜索")).strip()[:32] or "我的搜索"
+        self.qq_markdown = self._bool("qq_official_markdown", True)
+        self.qq_show_links = self._bool("qq_official_show_links", True)
+        self.qq_max_messages = self._int("qq_official_max_messages", 3, 1, 5)
         self.client = SearchClient(
             api_key=str(config.get("api_key", "")),
             timeout=self._int("request_timeout", 30, 5, 120),
@@ -140,7 +144,15 @@ class MySearchPlugin(Star):
             len(result),
         )
         try:
-            await self._send_result(event, result)
+            await self._send_result(
+                event,
+                result,
+                title={
+                    "extract": "网页正文",
+                    "batch": "批量搜索",
+                    "search": "搜索结果",
+                }[operation],
+            )
         except SearchError as exc:
             yield event.plain_result(f"我的搜索：{exc}").use_t2i(False)
 
@@ -151,7 +163,21 @@ class MySearchPlugin(Star):
             return False
         return self.result_mode == "forward" or len(text) >= self.forward_threshold
 
-    async def _send_result(self, event: AstrMessageEvent, text: str) -> None:
+    async def _send_result(
+        self, event: AstrMessageEvent, text: str, *, title: str = "搜索结果"
+    ) -> None:
+        if event.get_platform_name() in QQ_OFFICIAL_PLATFORMS:
+            await send_qq_result(
+                event,
+                text,
+                markdown=self.qq_markdown,
+                show_links=self.qq_show_links,
+                max_messages=self.qq_max_messages,
+                chunk_size=self.chunk_size,
+                output_limit=self.command_limit,
+                title=title,
+            )
+            return
         truncated = len(text) > self.command_limit
         text = limit_text(text, self.command_limit)
         output_size = len(text)

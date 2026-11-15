@@ -382,7 +382,7 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.result_mode = "text"
         self.assertFalse(self.plugin._use_forward(event, "x" * 5000))
         self.plugin.result_mode = "forward"
-        for platform in ["telegram", "qq_official", "lark"]:
+        for platform in ["telegram", "lark"]:
             event = LocalEvent(platform=platform)
             await self.plugin._send_result(event, "x" * 2100)
             self.assertTrue(all(isinstance(chain.chain[0], Plain) for chain in event.sent))
