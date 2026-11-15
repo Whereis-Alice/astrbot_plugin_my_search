@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any
 
 import aiohttp
@@ -14,8 +16,108 @@ import aiohttp
 class SearchError(RuntimeError):
     """An error safe to show in chat, without response bodies or secrets."""
 
+    def __init__(self, message: str, *, code: str = "", request_id: str = "") -> None:
+        self.code = code
+        self.request_id = request_id
+        if code:
+            message += f"（{code}）"
+        if request_id:
+            message += f"\n请求编号：{request_id}"
+        super().__init__(message)
 
-def decode_response(text: str) -> str:
+
+def _safe_detail(text: str, redactions: tuple[str, ...]) -> str:
+    """Keep a short service explanation, redact credentials and request inputs."""
+    for value in sorted(set(redactions), key=len, reverse=True):
+        if value:
+            text = text.replace(value, "[已隐藏]")
+    text = re.sub(
+        r"(?i)\b(?:authorization\s*[:=]\s*)?(?:bearer|basic)\s+[^\s,;\"']+",
+        "[鉴权信息已隐藏]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)([\"']?\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret)[\"']?\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;}&]+)",
+        r"\1[已隐藏]",
+        text,
+    )
+    text = re.sub(r"(?im)\b(?:set-cookie|cookie)\s*[:=]\s*[^\r\n]+", "Cookie=[已隐藏]", text)
+    text = re.sub(
+        r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b",
+        "[已隐藏]",
+        text,
+    )
+    text = re.sub(r"https?://[^\s<>\"']+", "[URL已省略]", text)
+    text = re.sub(r"[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]", " ", text)
+    return " ".join(text.split())[:240]
+
+
+def _service_error(data: dict[str, Any], redactions: tuple[str, ...]) -> SearchError:
+    result = data.get("result")
+    result = result if isinstance(result, dict) else {}
+    error = data.get("error")
+    code, detail = "", ""
+    if isinstance(error, dict):
+        value = error.get("code", "")
+        if isinstance(value, (int, str)) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", str(value)):
+            code = str(value)
+        if isinstance(error.get("message"), str):
+            detail = error["message"]
+    elif isinstance(error, str):
+        detail = error
+    else:
+        content = result.get("content", [])
+        if isinstance(content, list):
+            detail = "\n".join(
+                item["text"][:4096]
+                for item in content[:2]
+                if isinstance(item, dict)
+                and item.get("type") == "text"
+                and isinstance(item.get("text"), str)
+            )
+        lines = detail.strip().splitlines()
+        if len(lines) > 1 and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", lines[0].strip()):
+            code = lines[0].strip()
+            detail = "\n".join(lines[1:])
+    explanations = {
+        "extract_failed": "网页正文提取失败：服务无法读取此链接。可能与网站访问限制、登录要求或页面不可用有关。",
+        "extract_timeout": "网页正文提取超时，请稍后重试。",
+        "timeout": "搜索服务处理请求超时，请稍后重试。",
+        "invalid_api_key": "API Key 无效，请检查插件配置。",
+        "unauthorized": "搜索服务鉴权失败，请检查 API Key。",
+        "quota_exceeded": "搜索服务额度不足，请检查账户额度。",
+        "rate_limit_exceeded": "搜索服务请求过于频繁，请稍后重试。",
+        "-32602": "搜索服务拒绝了请求参数。",
+        "-32601": "搜索服务不支持此调用。",
+    }
+    message = explanations.get(code.lower(), "搜索服务未能完成请求。")
+    safe_detail = _safe_detail(detail, redactions)
+    if safe_detail:
+        message += f"\n服务说明：{safe_detail}"
+    meta = result.get("_meta", data.get("_meta", {}))
+    request_id = meta.get("request_id", "") if isinstance(meta, dict) else ""
+    if not isinstance(request_id, str) or not re.fullmatch(r"[a-fA-F0-9-]{16,64}", request_id):
+        request_id = ""
+    if any(value and value in code for value in redactions):
+        code = ""
+    if any(value and value in request_id for value in redactions):
+        request_id = ""
+    return SearchError(message, code=code, request_id=request_id)
+
+
+def _request_redactions(arguments: dict[str, Any]) -> tuple[str, ...]:
+    values = []
+    for value in arguments.values():
+        if isinstance(value, str):
+            values.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    values.extend(_request_redactions(item))
+    return tuple(values)
+
+
+def decode_response(text: str, *, redactions: tuple[str, ...] = ()) -> str:
     """Accept JSON and MCP SSE; preserve every text content block."""
     try:
         data = json.loads(text)
@@ -38,12 +140,12 @@ def decode_response(text: str) -> str:
     if not isinstance(data, dict):
         raise SearchError("搜索服务返回的数据格式不正确，请稍后重试。")
     if "error" in data:
-        raise SearchError("搜索服务拒绝了请求，请检查参数、API Key 或稍后重试。")
+        raise _service_error(data, redactions)
     result = data.get("result")
     if not isinstance(result, dict):
         raise SearchError("搜索服务未返回有效结果，请稍后重试。")
     if result.get("isError"):
-        raise SearchError("搜索服务未能完成请求，请检查额度、网页地址或稍后重试。")
+        raise _service_error(data, redactions)
     content = result.get("content", [])
     if not isinstance(content, list):
         raise SearchError("搜索服务返回的数据格式不正确，请稍后重试。")
@@ -74,10 +176,12 @@ class SearchClient:
         timeout: int = 30,
         cache_ttl: int = 60,
         max_concurrency: int = 3,
+        on_error: Callable[[str, SearchError], None] | None = None,
     ) -> None:
         self.api_key = api_key.strip()
         self.timeout = timeout
         self.cache_ttl = cache_ttl
+        self._on_error = on_error
         self._session: aiohttp.ClientSession | None = None
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
@@ -136,7 +240,10 @@ class SearchClient:
                                 raise SearchError(
                                     "搜索服务返回的内容过大，请减少结果数或换个网页。"
                                 )
-                        return decode_response(body.decode("utf-8", errors="replace"))
+                        return decode_response(
+                            body.decode("utf-8", errors="replace"),
+                            redactions=(self.api_key, *_request_redactions(arguments)),
+                        )
                 except TimeoutError as exc:
                     raise SearchError(
                         "搜索请求超时，请稍后重试；也可在配置中增加超时时间。"
@@ -156,6 +263,10 @@ class SearchClient:
                 while len(self._cache) > 64:
                     self._cache.popitem(last=False)
             return result
+        except SearchError as exc:
+            if self._on_error is not None:
+                self._on_error(name, exc)
+            raise
         finally:
             self._pending.pop(key, None)
 

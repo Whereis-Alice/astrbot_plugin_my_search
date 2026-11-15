@@ -87,6 +87,23 @@ def clean_result(text: str) -> str:
     return re.sub(r"\n*```ya?ml\s*\nrequest_id:[^\n]*\n```\s*$", "\n", text).strip()
 
 
+def format_extract_result(text: str, url: str) -> str:
+    """Turn the service's JSON page payload into a readable title, source and body."""
+    try:
+        page = json.loads(text)
+    except json.JSONDecodeError:
+        return clean_result(text)
+    if not isinstance(page, dict) or "content" not in page:
+        return clean_result(text)
+    body = page.get("content")
+    if not isinstance(body, str) or not body.strip():
+        raise SearchError("网页提取没有返回可读正文，请确认页面可公开访问。", code="empty_content")
+    title = page.get("title")
+    title = title.strip() if isinstance(title, str) else ""
+    heading = f"{title}\n" if title else ""
+    return clean_result(f"{heading}来源：{url}\n\n{body.strip()}")
+
+
 def limit_text(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
@@ -132,7 +149,7 @@ class SearchService:
             raise SearchError(
                 "请提供公开的 http(s) 网页地址；不支持本地、内网、带账号密码或格式错误的地址。"
             )
-        return clean_result(await self.client.extract(url))
+        return format_extract_result(await self.client.extract(url), url)
 
     async def batch(self, queries: str | list[str], max_results: int | None = None) -> str:
         items = parse_queries(queries)

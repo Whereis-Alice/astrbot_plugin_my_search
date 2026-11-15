@@ -179,8 +179,80 @@ class ValidationTests(unittest.TestCase):
             '{"result":{"content":[]}}',
         ]:
             with self.subTest(invalid=invalid), self.assertRaises(SearchError) as caught:
-                client_module.decode_response(invalid)
+                client_module.decode_response(invalid, redactions=("secret",))
             self.assertNotIn("secret", str(caught.exception))
+
+    def test_extract_error_keeps_actual_code_reason_and_request_id(self):
+        failed = {
+            "result": {
+                "_meta": {"request_id": "bdcb404f586a441db8230191d29225c9"},
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "extract_failed\nUnable to extract content from the URL.",
+                    }
+                ],
+                "isError": True,
+            }
+        }
+        for response in [
+            json.dumps(failed),
+            "event: message\ndata: " + json.dumps(failed) + "\n\n",
+        ]:
+            with self.subTest(response=response), self.assertRaises(SearchError) as caught:
+                client_module.decode_response(response)
+            self.assertEqual(caught.exception.code, "extract_failed")
+            self.assertEqual(caught.exception.request_id, "bdcb404f586a441db8230191d29225c9")
+            self.assertIn("Unable to extract content", str(caught.exception))
+            self.assertIn("网页正文提取失败", str(caught.exception))
+            self.assertNotIn("额度", str(caught.exception))
+
+    def test_error_diagnostics_redact_credentials_inputs_and_are_bounded(self):
+        message = (
+            'upstream denied api_key="private-key" password="private-password" '
+            "Authorization: Bearer private-bearer, query=private-query "
+            "at https://example.com/private?token=private-token\n"
+            "Cookie: session=private-cookie\n" + "x" * 1000
+        )
+        failed = {
+            "error": {"code": -32602, "message": message, "data": {"internal": "never-display"}}
+        }
+        with self.assertRaises(SearchError) as caught:
+            client_module.decode_response(
+                json.dumps(failed), redactions=("private-key", "private-query")
+            )
+        shown = str(caught.exception)
+        self.assertEqual(caught.exception.code, "-32602")
+        self.assertIn("upstream denied", shown)
+        for value in [
+            "private-key",
+            "private-password",
+            "private-bearer",
+            "private-query",
+            "private-token",
+            "private-cookie",
+            "never-display",
+        ]:
+            self.assertNotIn(value, shown)
+        self.assertLess(len(shown), 300)
+
+    def test_extracted_json_page_is_readable_and_empty_content_is_not_success(self):
+        page = json.dumps(
+            {"url": "https://example.com", "title": "Page title", "content": "first\n\nsecond"}
+        )
+        self.assertEqual(
+            service_module.format_extract_result(page, "https://example.com"),
+            "Page title\n来源：https://example.com\n\nfirst\n\nsecond",
+        )
+        self.assertEqual(
+            service_module.format_extract_result("Markdown body", "https://example.com"),
+            "Markdown body",
+        )
+        for body in [None, "", [], {}]:
+            with self.subTest(body=body), self.assertRaises(SearchError):
+                service_module.format_extract_result(
+                    json.dumps({"content": body}), "https://example.com"
+                )
 
 
 class PluginTests(unittest.IsolatedAsyncioTestCase):
@@ -287,6 +359,21 @@ class PluginTests(unittest.IsolatedAsyncioTestCase):
         [r async for r in self.plugin.my_extract_command(event, "https://example.com")]
         [r async for r in self.plugin.my_batch_command(event, "a;b")]
         self.assertFalse(event.call_llm)
+
+    async def test_explicit_url_search_does_not_extract_and_extract_failure_shows_hint(self):
+        event = LocalEvent()
+        url = "https://tieba.baidu.com/p/11198406296?see_lz=0"
+        [r async for r in self.plugin.my_search_command(event, "搜索 " + url)]
+        self.plugin.client.search.assert_awaited_once_with(url, 5)
+        self.plugin.client.extract.assert_not_awaited()
+        self.plugin.client.extract.side_effect = SearchError(
+            "网页正文提取失败", code="extract_failed"
+        )
+        result = [r async for r in self.plugin.my_extract_command(event, url)]
+        shown = result[0].chain[0].text
+        self.assertIn("extract_failed", shown)
+        self.assertIn("/搜一搜 搜索 URL", shown)
+        self.assertEqual(self.plugin.client.search.await_count, 1)
 
     async def test_errors_no_network_and_all_tools_call(self):
         event = LocalEvent()
@@ -410,6 +497,7 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await self.client.search(str(status), 5), "ok")
 
     async def test_bad_rpc_sse_response_limit_timeout_and_close(self):
+        self.client.api_key = "secret"
         self.raw = '{"result":{"isError":true,"content":[{"type":"text","text":"secret"}]}}'
         with self.assertRaises(SearchError) as caught:
             await self.client.search("bad", 5)
@@ -432,6 +520,37 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.client._cache, {})
         with self.assertRaises(SearchError):
             await self.client.search("closed", 5)
+
+    async def test_service_failure_logs_one_sanitized_diagnostic_for_shared_request(self):
+        diagnostics = []
+        self.client.api_key = "private-key"
+        self.client._on_error = lambda operation, error: diagnostics.append((operation, error))
+        self.payload = {
+            "result": {
+                "_meta": {"request_id": "0123456789abcdef0123456789abcdef"},
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "extract_failed\nUnable to extract https://example.com/private using private-key",
+                    }
+                ],
+                "isError": True,
+            }
+        }
+        results = await asyncio.gather(
+            *(self.client.extract("https://example.com/private") for _ in range(3)),
+            return_exceptions=True,
+        )
+        self.assertTrue(all(isinstance(result, SearchError) for result in results))
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(diagnostics), 1)
+        operation, error = diagnostics[0]
+        self.assertEqual(operation, "extract")
+        self.assertEqual(error.code, "extract_failed")
+        self.assertIn("0123456789abcdef0123456789abcdef", str(error))
+        self.assertNotIn("private-key", str(error))
+        self.assertNotIn("https://example.com/private", str(error))
+        self.assertFalse(self.client._cache)
 
 
 if __name__ == "__main__":

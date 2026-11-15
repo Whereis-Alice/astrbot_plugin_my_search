@@ -30,6 +30,7 @@ class MySearchPlugin(Star):
             timeout=self._int("request_timeout", 30, 5, 120),
             cache_ttl=self._int("cache_ttl", 60, 0, 3600),
             max_concurrency=self._int("max_concurrency", 3, 1, 10),
+            on_error=self._log_service_error,
         )
         self.service = SearchService(
             self.client,
@@ -46,6 +47,10 @@ class MySearchPlugin(Star):
 
     def _int(self, key: str, default: int, low: int, high: int) -> int:
         return bounded_int(self.config.get(key), default, low, high)
+
+    @staticmethod
+    def _log_service_error(operation: str, error: SearchError) -> None:
+        logger.warning("我的搜索：Anysearch %s 失败：%s", operation, error)
 
     def _bool(self, key: str, default: bool) -> bool:
         value = self.config.get(key, default)
@@ -64,6 +69,7 @@ class MySearchPlugin(Star):
         return (
             "我的搜索\n"
             "/搜一搜 关键词 —— 搜索网页资料\n"
+            "/搜一搜 搜索 URL —— 只搜索链接相关资料，不提取正文\n"
             "/看网页 https://example.com/page —— 提取网页正文\n"
             "/一起搜 关键词一；关键词二 —— 最多 5 个关键词\n"
             "/搜一搜 帮助 —— 查看用法\n"
@@ -85,6 +91,8 @@ class MySearchPlugin(Star):
         remainder = parts[1] if len(parts) == 2 else ""
         if action in {"提取", "网页"}:
             operation, value = "extract", remainder
+        elif action == "搜索":
+            operation, value = "search", remainder
         elif action == "批量":
             operation, value = "batch", remainder
         elif is_public_http_url(query):
@@ -121,7 +129,8 @@ class MySearchPlugin(Star):
             else:
                 result = await self.service.search(value)
         except SearchError as exc:
-            yield event.plain_result(f"我的搜索：{exc}").use_t2i(False)
+            hint = "\n若只想搜索相关资料，可用 /搜一搜 搜索 URL。" if operation == "extract" else ""
+            yield event.plain_result(f"我的搜索：{exc}{hint}").use_t2i(False)
             return
         await self._send_result(event, result)
 
